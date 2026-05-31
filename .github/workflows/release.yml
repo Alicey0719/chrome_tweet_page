@@ -1,0 +1,53 @@
+name: Release Extension
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version and build tag
+        id: meta
+        run: |
+          VERSION=$(jq -r '.version' manifest.json)
+          DATE=$(date +'%Y%m%d')
+          TAG="v${VERSION}-${DATE}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "date=${DATE}" >> $GITHUB_OUTPUT
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+
+      - name: Check tag does not already exist
+        run: |
+          if git ls-remote --tags origin | grep -q "refs/tags/${{ steps.meta.outputs.tag }}$"; then
+            echo "::error::Tag ${{ steps.meta.outputs.tag }} already exists. Bump the version in manifest.json."
+            exit 1
+          fi
+
+      - name: Create ZIP
+        run: |
+          zip -r tweet-page-${{ steps.meta.outputs.tag }}.zip \
+            manifest.json \
+            background.js \
+            icons/
+
+      - name: Push tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag ${{ steps.meta.outputs.tag }}
+          git push origin ${{ steps.meta.outputs.tag }}
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create ${{ steps.meta.outputs.tag }} \
+            --title "Tweet Page v${{ steps.meta.outputs.version }} (${{ steps.meta.outputs.date }})" \
+            --generate-notes \
+            tweet-page-${{ steps.meta.outputs.tag }}.zip
